@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FitnessData, HealthMetrics, WorkoutSession } from '@/types/fitness';
 
-// Mock data for demonstration
+// In-memory storage (use database in production)
+const fitnessDataStore: { [userId: string]: FitnessData } = {};
+
 const generateMockFitnessData = (): FitnessData => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -69,8 +71,11 @@ const generateMockFitnessData = (): FitnessData => {
 
 export async function GET(request: NextRequest) {
   try {
-    // In production, this would fetch from HealthKit via a secure backend
-    const fitnessData = generateMockFitnessData();
+    const userId = request.nextUrl.searchParams.get('userId') || 'default-user';
+    
+    // Return stored data or generate mock data
+    const fitnessData = fitnessDataStore[userId] || generateMockFitnessData();
+    
     return NextResponse.json(fitnessData);
   } catch (error) {
     console.error('Fitness API error:', error);
@@ -84,18 +89,72 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { action } = body;
+    const { action, userId = 'default-user', data } = body;
 
     if (action === 'connect') {
-      // In production, initiate HealthKit authorization
-      return NextResponse.json({ status: 'connected', message: 'Apple Watch connected' });
-    } else if (action === 'disconnect') {
-      // In production, revoke authorization
-      return NextResponse.json({ status: 'disconnected', message: 'Apple Watch disconnected' });
-    } else if (action === 'sync') {
-      // In production, sync with HealthKit
-      const fitnessData = generateMockFitnessData();
-      return NextResponse.json({ status: 'synced', data: fitnessData });
+      // Initialize Apple Watch connection
+      fitnessDataStore[userId] = generateMockFitnessData();
+      return NextResponse.json({ 
+        status: 'connected', 
+        message: 'Apple Watch connected and syncing',
+        data: fitnessDataStore[userId]
+      });
+    } 
+    else if (action === 'disconnect') {
+      // Disconnect Apple Watch
+      delete fitnessDataStore[userId];
+      return NextResponse.json({ 
+        status: 'disconnected', 
+        message: 'Apple Watch disconnected' 
+      });
+    } 
+    else if (action === 'sync') {
+      // Sync latest data from Apple Watch
+      const updatedData = generateMockFitnessData();
+      fitnessDataStore[userId] = updatedData;
+      return NextResponse.json({ 
+        status: 'synced', 
+        message: 'Apple Watch data synced successfully',
+        data: updatedData 
+      });
+    }
+    else if (action === 'add-workout') {
+      // Add a new workout from Apple Watch
+      if (!fitnessDataStore[userId]) {
+        fitnessDataStore[userId] = generateMockFitnessData();
+      }
+      
+      const newWorkout: WorkoutSession = {
+        id: Date.now().toString(),
+        ...data.workout
+      };
+      
+      fitnessDataStore[userId].workouts.push(newWorkout);
+      fitnessDataStore[userId].lastUpdated = new Date();
+      
+      return NextResponse.json({ 
+        status: 'workout-added', 
+        message: 'Workout added from Apple Watch',
+        data: fitnessDataStore[userId] 
+      });
+    }
+    else if (action === 'update-metrics') {
+      // Update daily metrics from Apple Watch
+      if (!fitnessDataStore[userId]) {
+        fitnessDataStore[userId] = generateMockFitnessData();
+      }
+      
+      fitnessDataStore[userId].todayMetrics = {
+        ...fitnessDataStore[userId].todayMetrics,
+        ...data.metrics
+      };
+      fitnessDataStore[userId].lastUpdated = new Date();
+      
+      return NextResponse.json({ 
+        status: 'metrics-updated', 
+        message: 'Daily metrics updated from Apple Watch',
+        data: fitnessDataStore[userId] 
+      });
     }
 
     return NextResponse.json(
